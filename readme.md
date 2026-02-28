@@ -1,69 +1,46 @@
-Frigate Event Backup to Google Drive (rclone)
+# Frigate Event Backup to Google Drive (rclone)
 
-Français | English
+![License](https://img.shields.io/badge/license-MIT-green)
+![Docker](https://img.shields.io/badge/Docker-Supported-blue)
+
+[Français](#-français) | [English](#-english)
+
+---
 
 <a name="français"></a>
+## 🇫🇷 Français
 
-🇫🇷 Français
-Ce projet permet de sauvegarder automatiquement les clips et snapshots de Frigate NVR vers un stockage distant (Google Drive, etc.) en utilisant rclone. Il utilise une architecture basée sur les événements MQTT pour une réactivité instantanée.
+Ce projet automatise la sauvegarde des clips de **Frigate NVR** vers un stockage cloud (Google Drive) via **rclone**.
 
-✨ Caractéristiques
+### ✨ Points Forts
+* **Architecture réactive** : Le script `frigate_watchdog.sh` écoute les événements MQTT de Frigate pour agir instantanément dès qu'une vidéo est prête.
+* **Double Sécurité** : Un balayage automatique est effectué toutes les 10 minutes pour ne rater aucun clip, même en cas de coupure MQTT.
+* **Filtrage Intelligent** : Seuls les événements validés avec clips (`has_clip=1`) et présents dans la "Review" Frigate sont sauvegardés.
+* **Statistiques MQTT** : Envoie le statut de la sauvegarde et l'espace disque utilisé vers Home Assistant.
 
-Réactivité en temps réel : Déclenchement de la sauvegarde dès qu'un événement Frigate se termine via MQTT.
+### 🛠 Configuration
+1. Créez un fichier `.env` à partir du modèle `.env.example`.
+2. Montez votre fichier `rclone.conf` dans le conteneur via le `docker-compose.yml`.
 
-Balayage de sécurité : Un scan périodique toutes les 10 minutes pour ne rater aucun événement.
+---
 
-Intelligence de filtrage : Utilise les API Frigate pour ne sauvegarder que les événements validés (review=1) et possédant un clip vidéo (has_clip=1).
-
-Noms de fichiers explicites : Inclut le nom de la caméra et l'horodatage (camera_YYYYMMDD_HHMMSS.mp4).
-
-Nettoyage automatique : Purge les anciens dossiers sur le stockage distant après 7 jours.
-
-Notifications MQTT : Envoie l'état de la synchronisation et les statistiques vers Home Assistant.
-
-🚀 Installation
-
-Configurez votre accès Google Drive avec rclone config et placez le fichier rclone.conf dans le dossier.
-
-Copiez .env.example vers .env et remplissez vos identifiants MQTT et l'URL de Frigate.
-
-Lancez le conteneur :
-\`\`\` Bash
-docker compose up -d
-\`\`\`
 <a name="english"></a>
+## 🇺🇸 English
 
-🇺🇸 English
-This project automatically backs up Frigate NVR clips and snapshots to remote storage (Google Drive, etc.) using rclone. It features an event-driven architecture based on MQTT for instant processing.
+Automated backup of **Frigate NVR** clips to cloud storage (Google Drive) using **rclone**.
 
-✨ Features
+### ✨ Key Features
+* **Event Driven**: `frigate_watchdog.sh` monitors MQTT events for immediate backup processing.
+* **Reliability**: Background scan every 10 minutes ensures 100% sync coverage.
+* **Optimized Storage**: Only backs up events with video clips and validated "Review" status.
+* **Monitoring**: Integrated MQTT reporting for Home Assistant dashboards.
 
-Real-time processing: Backup starts immediately when a Frigate event ends via MQTT.
+### 🚀 Quick Start
+\`\`\`bash
+# Clone the repository
+git clone https://github.com/antlep/frigate_rsync_backup.git
 
-Safety Scan: Periodic background scan every 10 minutes to ensure no events are missed.
-
-Smart Filtering: Uses Frigate APIs to only backup validated events (review=1) with an associated video clip (has_clip=1).
-
-Clean Filenames: Includes camera name and timestamp (camera_YYYYMMDD_HHMMSS.mp4).
-
-Auto-Cleanup: Automatically purges remote folders older than 7 days.
-
-MQTT Status: Sends sync status and storage statistics to Home Assistant.
-
-🚀 Setup
-
-Configure your Google Drive access with rclone config and place the rclone.conf file in the directory.
-
-Copy .env.example to .env and fill in your MQTT credentials and Frigate URL.
-
-Start the container:
-
-\`\`\` bash
+# Configure your .env and rclone.conf
+# Start the service
 docker compose up -d
 \`\`\`
-
-🛠️ Architecture
-
-frigate_watchdog.sh: The entry point. It listens to the MQTT topic frigate/events and triggers the backup script.
-
-frigate_backup.sh: The logic engine. It queries the Frigate API, downloads media, and moves them to the cloud via rclone.
