@@ -30,6 +30,6 @@ Ce projet permet de sauvegarder automatiquement les clips et snapshots de **Frig
 1. **Rclone** : Configurez votre accès avec `rclone config` et placez votre `rclone.conf` dans le dossier.
 2. **Environnement** : Copiez `.env.example` vers `.env` et remplissez vos accès MQTT et l'URL de Frigate.
 3. **Déploiement** :
-```bash
+    ```bash
     docker compose up -d
-```
+    ```
