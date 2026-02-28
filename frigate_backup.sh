@@ -1,5 +1,7 @@
 #!/bin/bash
 
+start_time=$(date +%s)
+
 # --- CONFIGURATION ---
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export HOME=/root
@@ -7,7 +9,11 @@ export RCLONE_CONFIG_READONLY=true
 
 FRIGATE_URL="http://localhost:5000"
 SOURCE_TEMP="/root/media/temp_export"
-REGISTRY="/app/synced_events.txt"
+if [ -d "/app" ]; then
+    REGISTRY="/app/synced_events.txt"
+else
+    REGISTRY="$(dirname "$0")/synced_events.txt"
+fi
 RCLONE_CONF="/root/.config/rclone/rclone.conf"
 
 DATE_JOUR=$(date +%Y-%m-%d)
@@ -128,6 +134,9 @@ rclone lsf "$DEST_ROOT" $RCLONE_OPTS --dirs-only | while read -r FOLDER; do
     fi
 done
 
+end_time=$(date +%s)
+duration=$((end_time - start_time))
+
 # --- MQTT STATS ---
 STATUS="💤 Déjà synchronisé"
 LOG_DETAILS="Aucun nouvel événement"
@@ -147,9 +156,14 @@ MSG_PAYLOAD=$(jq -n \
     --arg sz "$DRIVE_SIZE_BYTES" \
     --arg ls "$LAST_SYNC" \
     --arg lg "$LOG_DETAILS" \
-    '{status: $st, size: $sz, last_sync: $ls, log: $lg}')
+    --argjson du "$duration" \
+    '{status: $st, size: $sz, last_sync: $ls, log: $lg, duration_seconds: $du}')
 
 mosquitto_pub -h "$MQTT_HOST" -u "$MQTT_USER" -P "$MQTT_PASS" -t "$MQTT_TOPIC" -m "$MSG_PAYLOAD" -q 1
 
-tail -n 1000 "$REGISTRY" > "$REGISTRY.tmp" && mv "$REGISTRY.tmp" "$REGISTRY"
+if [ -f "$REGISTRY" ]; then
+    # On garde les 500 derniers IDs pour garantir la rapidité du grep
+    tail -n 500 "$REGISTRY" > "$REGISTRY.tmp" && mv "$REGISTRY.tmp" "$REGISTRY"
+    log_message "🧹 Historique local limité aux 500 derniers événements." "35"
+fi
 log_message "🏁 Fin." "32"
