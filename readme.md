@@ -46,16 +46,18 @@ docker compose up -d
 
 ---
 
-## ⚠️ Impératif / Mandatory
+## ⚠️ Configuration MQTT Obligatoire / Mandatory MQTT Broker
 
 **Français :**
-Il est **indispensable** que votre instance Frigate soit configurée pour communiquer avec un broker MQTT.
-- Le script `watchdog` s'appuie sur les messages du topic `frigate/events` pour déclencher les sauvegardes en temps réel.
-- Sans MQTT, seule la vérification périodique (toutes les 10 min) fonctionnera.
+L'utilisation d'un broker MQTT (ex: Mosquitto) est **indispensable** pour deux raisons critiques :
+1. **Entrée (Trigger)** : Le script `watchdog` s'abonne au topic `frigate/events` pour lancer la sauvegarde instantanément dès la fin d'un événement.
+2. **Sortie (Reporting)** : Le script de backup publie un rapport JSON après chaque exécution pour permettre un monitoring dans Home Assistant (statut, espace disque utilisé, erreurs).
+*Sans broker MQTT, le système perd sa réactivité et ses capacités de reporting.*
 
 **English:**
-It is **imperative** that your Frigate instance is connected to an MQTT broker.
-- The `watchdog` script relies on messages from the `frigate/events` topic to trigger real-time backups.
-- Without MQTT, only the periodic scan (every 10 min) will be operational.
+An MQTT broker (e.g., Mosquitto) is **mandatory** for two critical reasons:
+1. **Input (Trigger)**: The `watchdog` script subscribes to the `frigate/events` topic to trigger backups instantly as soon as an event ends.
+2. **Output (Reporting)**: The backup script publishes a JSON report after each run to allow monitoring in Home Assistant (status, disk space used, errors).
+*Without an MQTT broker, the system loses both its real-time responsiveness and reporting capabilities.*
 
 ---
