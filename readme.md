@@ -1,4 +1,5 @@
 Frigate Event Backup to Google Drive (rclone)
+
 Français | English
 
 <a name="français"></a>
@@ -27,9 +28,9 @@ Configurez votre accès Google Drive avec rclone config et placez le fichier rcl
 Copiez .env.example vers .env et remplissez vos identifiants MQTT et l'URL de Frigate.
 
 Lancez le conteneur :
-
-Bash
+\`\`\` Bash
 docker compose up -d
+\`\`\`
 <a name="english"></a>
 
 🇺🇸 English
@@ -57,8 +58,10 @@ Copy .env.example to .env and fill in your MQTT credentials and Frigate URL.
 
 Start the container:
 
-Bash
+\`\`\` bash
 docker compose up -d
+\`\`\`
+
 🛠️ Architecture
 
 frigate_watchdog.sh: The entry point. It listens to the MQTT topic frigate/events and triggers the backup script.
