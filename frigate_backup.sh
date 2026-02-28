@@ -8,7 +8,7 @@ export HOME=/root
 export RCLONE_CONFIG_READONLY=true
 
 FRIGATE_URL="http://localhost:5000"
-SOURCE_TEMP="/root/media/temp_export"
+SOURCE_TEMP="/tmp/frigate_export"
 if [ -d "/app" ]; then
     REGISTRY="/app/synced_events.txt"
 else
@@ -17,7 +17,7 @@ fi
 RCLONE_CONF="/root/.config/rclone/rclone.conf"
 
 DATE_JOUR=$(date +%Y-%m-%d)
-LOG_DIR="/root/log_sauvegarde"
+LOG_DIR="$(dirname "$REGISTRY")/logs"
 LOG_FILE="$LOG_DIR/frigate_sync_$DATE_JOUR.log"
 
 DEST_ROOT="gdrive:Frigate_Backups"
@@ -162,8 +162,10 @@ MSG_PAYLOAD=$(jq -n \
 mosquitto_pub -h "$MQTT_HOST" -u "$MQTT_USER" -P "$MQTT_PASS" -t "$MQTT_TOPIC" -m "$MSG_PAYLOAD" -q 1
 
 if [ -f "$REGISTRY" ]; then
-    # On garde les 500 derniers IDs pour garantir la rapidité du grep
-    tail -n 500 "$REGISTRY" > "$REGISTRY.tmp" && mv "$REGISTRY.tmp" "$REGISTRY"
+    tmp_file=$(mktemp)
+    tail -n 500 "$REGISTRY" > "$tmp_file"
+    cat "$tmp_file" > "$REGISTRY"
+    rm "$tmp_file"
     log_message "🧹 Historique local limité aux 500 derniers événements." "35"
 fi
 log_message "🏁 Fin." "32"

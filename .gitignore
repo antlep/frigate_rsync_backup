@@ -1,10 +1,5 @@
-# Secrets et configurations personnelles
-rclone.conf
 .env
-
-# Données dynamiques (historique des sync)
+rclone.conf
+logs/*.log
 synced_events.txt
-
-# Logs
-logs/
-*.log
+synced_events.txt.tmp
