@@ -72,3 +72,12 @@ Automated backup of **Frigate NVR** clips and snapshots to cloud storage using *
 ### 🛠️ Architecture
 * **`frigate_watchdog.sh`**: Entry point. Listens to MQTT and manages the 10-min safety timer.
 * **`frigate_backup.sh`**: Logic engine. Queries Frigate API, downloads media, and moves them via rclone.
+
+## 🚀 Roadmap & Idées futures
+
+Voici les pistes d'améliorations :
+
+- [ ] **Externalisation de la configuration** : Sortir les paramètres "hardcodés" (ex: boucle de sécurité de 10 min, limites de rétention) pour les rendre configurables via le fichier `.env`.
+- [ ] **Notifications multi-canaux** : Intégrer des alertes via Telegram ou Discord en cas d'échec de la synchronisation. Je n'y connais rien donc à vos crayons
+- [ ] **Gestion fine par caméra** : Permettre des durées de rétention différentes sur le Cloud selon l'importance de la caméra.
+- [ ] **Optimisation du registre** : Passer d'un fichier texte à une micro-base de données (SQLite) pour gérer des milliers d'événements sans ralentissement. A voir si c'est pertinent
