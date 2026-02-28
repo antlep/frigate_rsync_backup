@@ -1,6 +1,5 @@
 # Frigate Event Backup to Google Drive (rclone)
 
-![License](https://img.shields.io/badge/license-MIT-green)
 ![Docker](https://img.shields.io/badge/Docker-Supported-blue)
 
 [Français](#-français) | [English](#-english)
@@ -44,3 +43,19 @@ git clone https://github.com/antlep/frigate_rsync_backup.git
 # Start the service
 docker compose up -d
 \`\`\`
+
+---
+
+## ⚠️ Impératif / Mandatory
+
+**Français :**
+Il est **indispensable** que votre instance Frigate soit configurée pour communiquer avec un broker MQTT.
+- Le script `watchdog` s'appuie sur les messages du topic `frigate/events` pour déclencher les sauvegardes en temps réel.
+- Sans MQTT, seule la vérification périodique (toutes les 10 min) fonctionnera.
+
+**English:**
+It is **imperative** that your Frigate instance is connected to an MQTT broker.
+- The `watchdog` script relies on messages from the `frigate/events` topic to trigger real-time backups.
+- Without MQTT, only the periodic scan (every 10 min) will be operational.
+
+---
