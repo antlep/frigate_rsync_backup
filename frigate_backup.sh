@@ -20,6 +20,8 @@ DATE_JOUR=$(date +%Y-%m-%d)
 LOG_DIR="$(dirname "$REGISTRY")/logs"
 LOG_FILE="$LOG_DIR/frigate_sync_$DATE_JOUR.log"
 
+RETENTION_DAYS="${RETENTION_DAYS:-7}"
+MAX_HISTORY="${MAX_HISTORY:-500}"
 DEST_ROOT="gdrive:Frigate_Backups"
 DEST_JOUR="$DEST_ROOT/$DATE_JOUR"
 
@@ -122,7 +124,7 @@ while read -r ROW; do
 done < <(echo "$EVENTS_JSON" | jq -r '.[] | "\(.id)|\(.camera)|\(.start_time)|\(.end_time)"' 2>/dev/null)
 
 # --- NETTOYAGE GDRIVE (Conservation de 7 jours) ---
-LIMIT_TS=$(( $(date +%s) - (7 * 86400) ))
+LIMIT_TS=$(( $(date +%s) - (RETENTION_DAYS * 86400) ))
 DATE_LIMITE=$(date -d "@$LIMIT_TS" +%Y-%m-%d)
 log_message "🧹 Nettoyage GDrive (Avant ou égal au $DATE_LIMITE)..." "35"
 
@@ -163,9 +165,9 @@ mosquitto_pub -h "$MQTT_HOST" -u "$MQTT_USER" -P "$MQTT_PASS" -t "$MQTT_TOPIC" -
 
 if [ -f "$REGISTRY" ]; then
     tmp_file=$(mktemp)
-    tail -n 500 "$REGISTRY" > "$tmp_file"
+    tail -n "$MAX_HISTORY" "$REGISTRY" > "$tmp_file"
     cat "$tmp_file" > "$REGISTRY"
     rm "$tmp_file"
-    log_message "🧹 Historique local limité aux 500 derniers événements." "35"
+    log_message "🧹 Historique local limité aux $MAX_HISTORY derniers événements." "35"
 fi
 log_message "🏁 Fin." "32"
