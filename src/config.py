@@ -14,11 +14,25 @@ Environment variables are dot-path uppercased with underscores:
 from __future__ import annotations
 
 import os
+import socket
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
 from pydantic import BaseModel, Field
+
+
+# --------------------------------------------------------------------------- #
+# Host auto-detection                                                          #
+# --------------------------------------------------------------------------- #
+
+def _probe_tcp(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Return True if a TCP connection to host:port succeeds within timeout."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -28,18 +42,34 @@ from pydantic import BaseModel, Field
 
 class FrigateConfig(BaseModel):
     host: str = "localhost"
+    host_fallback: Optional[str] = None   # e.g. "192.168.1.x" — used when host is unreachable
     port: int = 5000
     api_timeout: int = 30  # seconds
+
+    def resolved_host(self) -> str:
+        """Return host if reachable, otherwise host_fallback.
+        On LXC (co-located) → host=127.0.0.1 répond → on l'utilise.
+        Sur Mac (dev)        → 127.0.0.1 ne répond pas → fallback IP réseau.
+        """
+        if self.host_fallback and not _probe_tcp(self.host, self.port):
+            return self.host_fallback
+        return self.host
 
 
 class MQTTConfig(BaseModel):
     host: str = "localhost"
+    host_fallback: Optional[str] = None   # même logique que Frigate
     port: int = 1883
     username: Optional[str] = None
     password: Optional[str] = None
     topic_prefix: str = "frigate"
     client_id: str = "frigate-gdrive-sync"
     keepalive: int = 60
+
+    def resolved_host(self) -> str:
+        if self.host_fallback and not _probe_tcp(self.host, self.port):
+            return self.host_fallback
+        return self.host
 
 
 class RcloneConfig(BaseModel):
@@ -113,22 +143,24 @@ class AppConfig(BaseModel):
 # --------------------------------------------------------------------------- #
 
 _ENV_MAP: dict[str, tuple[str, str]] = {
-    # ENV_VAR                 section       key
-    "FRIGATE_HOST":          ("frigate",   "host"),
-    "FRIGATE_PORT":          ("frigate",   "port"),
-    "MQTT_HOST":             ("mqtt",      "host"),
-    "MQTT_PORT":             ("mqtt",      "port"),
-    "MQTT_USERNAME":         ("mqtt",      "username"),
-    "MQTT_PASSWORD":         ("mqtt",      "password"),
-    "MQTT_TOPIC_PREFIX":     ("mqtt",      "topic_prefix"),
-    "RCLONE_REMOTE":         ("rclone",    "remote"),
-    "RCLONE_CONFIG_PATH":    ("rclone",    "config_path"),
-    "RCLONE_BWLIMIT":        ("rclone",    "bwlimit"),
-    "SYNC_WORKERS":          ("sync",      "workers"),
-    "SYNC_DRY_RUN":          ("sync",      "dry_run"),
-    "SYNC_MIN_SCORE":        ("sync",      "min_score"),
-    "LOG_LEVEL":             ("logging",   "level"),
-    "LOG_FORMAT":            ("logging",   "format"),
+    # ENV_VAR                   section       key
+    "FRIGATE_HOST":            ("frigate",   "host"),
+    "FRIGATE_HOST_FALLBACK":   ("frigate",   "host_fallback"),
+    "FRIGATE_PORT":            ("frigate",   "port"),
+    "MQTT_HOST":               ("mqtt",      "host"),
+    "MQTT_HOST_FALLBACK":      ("mqtt",      "host_fallback"),
+    "MQTT_PORT":               ("mqtt",      "port"),
+    "MQTT_USERNAME":           ("mqtt",      "username"),
+    "MQTT_PASSWORD":           ("mqtt",      "password"),
+    "MQTT_TOPIC_PREFIX":       ("mqtt",      "topic_prefix"),
+    "RCLONE_REMOTE":           ("rclone",    "remote"),
+    "RCLONE_CONFIG_PATH":      ("rclone",    "config_path"),
+    "RCLONE_BWLIMIT":          ("rclone",    "bwlimit"),
+    "SYNC_WORKERS":            ("sync",      "workers"),
+    "SYNC_DRY_RUN":            ("sync",      "dry_run"),
+    "SYNC_MIN_SCORE":          ("sync",      "min_score"),
+    "LOG_LEVEL":               ("logging",   "level"),
+    "LOG_FORMAT":              ("logging",   "format"),
 }
 
 

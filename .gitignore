@@ -2,6 +2,9 @@
 config/rclone.conf
 config/config.yaml
 
+# Override docker-compose local (contient les IPs réseau)
+docker-compose.override.yml
+
 # SQLite
 *.db
 *.db-shm
