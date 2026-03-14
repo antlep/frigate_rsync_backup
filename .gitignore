@@ -1,5 +1,0 @@
-.env
-rclone.conf
-logs/*.log
-synced_events.txt
-synced_events.txt.tmp

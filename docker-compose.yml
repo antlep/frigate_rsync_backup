@@ -1,0 +1,54 @@
+services:
+  frigate-gdrive-sync:
+    build: .
+    image: frigate-gdrive-sync:latest
+    container_name: frigate-gdrive-sync
+    restart: unless-stopped
+
+    volumes:
+      # rclone.conf + config.yaml – mount read-only for security
+      - ./config:/config:ro
+      # SQLite persistence – survives container restarts
+      - frigate-sync-data:/data
+      # Ephemeral download staging – tmpfs for speed, no disk wear
+      - type: tmpfs
+        target: /tmp/frigate-sync
+
+    environment:
+      # Override any config.yaml value via env vars (see src/config.py)
+      # FRIGATE_HOST: "192.168.1.100"
+      # MQTT_HOST: "192.168.1.100"
+      # SYNC_WORKERS: "4"
+      # SYNC_DRY_RUN: "false"
+      # LOG_LEVEL: "INFO"
+      - CONFIG_PATH=/config/config.yaml
+
+    # Expose health port (optional – useful for uptime monitoring)
+    ports:
+      - "8080:8080"
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import urllib.request, sys
+          try:
+            r = urllib.request.urlopen('http://localhost:8080/health', timeout=4)
+            sys.exit(0 if r.status == 200 else 1)
+          except Exception:
+            sys.exit(1)
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  frigate-sync-data:
