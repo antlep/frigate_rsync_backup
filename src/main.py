@@ -57,11 +57,27 @@ def _setup_logging(config: AppConfig) -> None:
 
 
 async def _stats_reporter(queue: EventQueue, health: HealthServer, publisher: "StatusPublisher", interval: float = 15.0) -> None:
+    log = structlog.get_logger()
+    _was_busy = False  # True when at least one event was in flight
+
     while True:
         try:
             stats = await queue.stats()
             health.set_queue_stats(stats)
             publisher.set_queue_stats(stats)
+
+            queued     = stats.get("queued", 0)
+            processing = stats.get("processing", 0)
+            pending    = stats.get("pending", 0)
+            is_busy    = (queued + processing + pending) > 0
+
+            if _was_busy and not is_busy:
+                log.info(
+                    "all_workers_idle",
+                    done=stats.get("done", 0),
+                    failed=stats.get("failed", 0),
+                )
+            _was_busy = is_busy
         except Exception:
             pass
         await asyncio.sleep(interval)
