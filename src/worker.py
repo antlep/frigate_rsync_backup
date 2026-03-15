@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import zipfile
 from pathlib import Path
 
 import structlog
@@ -144,30 +145,45 @@ class EventWorker:
                 # Return False to trigger a retry.
                 return False
 
-            # ---- upload all files in parallel ------------------------- #
-            results = await asyncio.gather(
-                *[self._uploader.upload_file(local, remote) for local, remote in files],
-                return_exceptions=True,
+            # ---- zip all files (max compression) ---------------------- #
+            zip_name = f"{stem}.zip"
+            zip_path = tmp / zip_name
+            await asyncio.get_event_loop().run_in_executor(
+                None, _zip_files, zip_path, files
             )
+            remote_zip = f"{remote_dir}/{zip_name}"
 
-            for (local, remote), result in zip(files, results):
-                if isinstance(result, Exception):
-                    self._log.error("upload_exception", file=local.name, error=str(result))
-                    all_ok = False
-                elif not result:
-                    self._log.error("upload_failed", file=local.name, remote=remote)
-                    all_ok = False
-                else:
-                    self._log.info(
-                        "uploaded",
-                        file=local.name,
-                        remote=remote,
-                        camera=event.camera,
-                        label=event.label,
-                        score=round(event.score, 2),
-                    )
+            # ---- upload single zip ------------------------------------ #
+            result = await self._uploader.upload_file(zip_path, remote_zip)
+            if isinstance(result, Exception):
+                self._log.error("upload_exception", file=zip_name, error=str(result))
+                all_ok = False
+            elif not result:
+                self._log.error("upload_failed", file=zip_name, remote=remote_zip)
+                all_ok = False
+            else:
+                self._log.info(
+                    "uploaded",
+                    file=zip_name,
+                    remote=remote_zip,
+                    camera=event.camera,
+                    label=event.label,
+                    score=round(event.score, 2),
+                    files=[p.name for p, _ in files],
+                )
 
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
         return all_ok
+
+
+def _zip_files(zip_path: Path, files: list[tuple[Path, str]]) -> None:
+    """Create a ZIP archive with maximum compression (LZMA/deflate level 9).
+
+    MP4 files are already compressed — deflate won't shrink them much but
+    LZMA can squeeze a few extra percent. JSON and JPG compress well.
+    """
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_LZMA) as zf:
+        for local_path, _ in files:
+            zf.write(local_path, arcname=local_path.name)
