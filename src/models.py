@@ -83,8 +83,8 @@ class FrigateEvent:
 
     @property
     def event_folder(self) -> str:
-        """Full remote path: {YYYY-MM-DD}/{camera}/{YYYY-MM-DD}_{camera}_{id}"""
-        return f"{self.date_str}/{self.camera}/{self.date_str}_{self.camera}_{self.id}"
+        """Full remote path: {YYYY-MM-DD}/{camera}"""
+        return f"{self.date_str}/{self.camera}"
 
     @property
     def filename_stem(self) -> str:
