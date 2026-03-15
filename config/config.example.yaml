@@ -45,6 +45,29 @@ sync:
   tmp_dir: "/tmp/frigate-sync"
   dry_run: false           # set to true to log uploads without running rclone
 
+  # ---- Arborescence Google Drive ----------------------------------------- #
+  # Template du dossier de destination pour chaque événement.
+  # Les fichiers (mp4, jpg, json) sont placés directement dans ce dossier.
+  #
+  # Variables disponibles :
+  #   {date}   → date de l'événement        ex: 2026-03-15
+  #   {year}   → année                       ex: 2026
+  #   {month}  → année-mois                  ex: 2026-03
+  #   {hour}   → heure (2 chiffres)          ex: 14
+  #   {camera} → nom de la caméra Frigate    ex: annke_02
+  #   {label}  → label de détection          ex: person
+  #   {id}     → identifiant unique Frigate  ex: 1773575581.33434-f8r7fs
+  #   {stem}   → nom complet sans extension  ex: 2026-03-15_14-32-07_person_1773575581.33434-f8r7fs
+  #
+  # Exemples :
+  #   {date}/{camera}              → 2026-03-15/annke_02/              (défaut)
+  #   {year}/{month}/{camera}      → 2026/2026-03/annke_02/
+  #   {camera}/{date}              → annke_02/2026-03-15/
+  #   {camera}/{date}/{label}      → annke_02/2026-03-15/person/
+  #   {date}/{camera}/{hour}h      → 2026-03-15/annke_02/14h/
+  #
+  path_template: "{date}/{camera}"
+
 logging:
   level: "INFO"            # DEBUG | INFO | WARNING | ERROR
   format: "json"           # "json" for structured logs, "text" for human-readable

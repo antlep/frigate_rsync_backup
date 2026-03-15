@@ -81,6 +81,15 @@ class RcloneConfig(BaseModel):
 
 class SyncConfig(BaseModel):
     workers: int = 4                       # parallel upload workers
+    # Path template for remote files. Available variables:
+    #   {date}      → 2026-03-15
+    #   {datetime}  → 2026-03-15_11-53-01
+    #   {camera}    → annke_02
+    #   {label}     → person
+    #   {id}        → 1773575581.33434-f8r7fs
+    #   {score}     → 0.52
+    # Default produces: 2026-03-15/annke_02/2026-03-15_11-53-01_person_{id}
+    path_template: str = "{date}/{camera}/{datetime}_{label}_{id}"
     retry_attempts: int = 3
     retry_delay: float = 10.0              # seconds (base, then × backoff)
     retry_backoff: float = 2.0
@@ -92,6 +101,11 @@ class SyncConfig(BaseModel):
     min_score: float = 0.0
     tmp_dir: str = "/tmp/frigate-sync"
     dry_run: bool = False                  # log uploads but do not execute rclone
+
+    # Folder structure template on the remote.
+    # Available variables: {date} {year} {month} {camera} {label} {hour} {id}
+    # Default: {date}/{camera}  →  2026-03-15/annke_02/
+    path_template: str = "{date}/{camera}"
 
 
 class LoggingConfig(BaseModel):

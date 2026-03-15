@@ -81,10 +81,29 @@ class FrigateEvent:
         """e.g.  2026-03-15"""
         return self.dt.strftime('%Y-%m-%d')
 
-    @property
-    def event_folder(self) -> str:
-        """Full remote path: {YYYY-MM-DD}/{camera}"""
-        return f"{self.date_str}/{self.camera}"
+    def render_path(self, template: str) -> str:
+        """Resolve a path template using event data.
+
+        Available variables:
+          {date}   → 2026-03-15
+          {year}   → 2026
+          {month}  → 2026-03
+          {hour}   → 14
+          {camera} → annke_02
+          {label}  → person
+          {id}     → 1773575581.33434-f8r7fs
+          {stem}   → 2026-03-15_14-32-07_person_1773575581.33434-f8r7fs
+        """
+        return template.format(
+            date=self.dt.strftime("%Y-%m-%d"),
+            year=self.dt.strftime("%Y"),
+            month=self.dt.strftime("%Y-%m"),
+            hour=self.dt.strftime("%H"),
+            camera=self.camera,
+            label=self.label,
+            id=self.id,
+            stem=self.filename_stem,
+        )
 
     @property
     def filename_stem(self) -> str:
