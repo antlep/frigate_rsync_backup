@@ -101,8 +101,8 @@ class EventWorker:
         tmp = Path(cfg.tmp_dir) / event.id
         tmp.mkdir(parents=True, exist_ok=True)
 
-        # Remote path:  {camera}/{YYYY-MM}/{YYYY-MM-DD}/{stem}.{ext}
-        remote_dir = f"{event.camera}/{event.date_folder}"
+        # Remote path:  {YYYY-MM-DD}/{camera}/{YYYY-MM-DD}_{camera}_{id}/{files}
+        remote_dir = event.event_folder
         stem = event.filename_stem
 
         files: list[tuple[Path, str]] = []

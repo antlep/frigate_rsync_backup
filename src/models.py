@@ -77,9 +77,14 @@ class FrigateEvent:
         return datetime.fromtimestamp(self.start_time)
 
     @property
-    def date_folder(self) -> str:
-        """e.g.  2024-12/2024-12-25"""
-        return f"{self.dt.strftime('%Y-%m')}/{self.dt.strftime('%Y-%m-%d')}"
+    def date_str(self) -> str:
+        """e.g.  2026-03-15"""
+        return self.dt.strftime('%Y-%m-%d')
+
+    @property
+    def event_folder(self) -> str:
+        """Full remote path: {YYYY-MM-DD}/{camera}/{YYYY-MM-DD}_{camera}_{id}"""
+        return f"{self.date_str}/{self.camera}/{self.date_str}_{self.camera}_{self.id}"
 
     @property
     def filename_stem(self) -> str:
