@@ -5,6 +5,7 @@ Wires together:
   - EventQueue (async + SQLite persistence)
   - MQTTListener (aiomqtt, auto-reconnect)
   - N × EventWorker (parallel uploads)
+  - RetentionCleaner (periodic GDrive cleanup)
   - HealthServer (aiohttp, /health endpoint)
 """
 from __future__ import annotations
@@ -19,31 +20,22 @@ from config import AppConfig
 from event_queue import EventQueue
 from health import HealthServer
 from mqtt_listener import MQTTListener
-from status_publisher import StatusPublisher
 from retention import RetentionCleaner
 from worker import EventWorker
 
 
-# --------------------------------------------------------------------------- #
-# Logging setup                                                                #
-# --------------------------------------------------------------------------- #
-
-
 def _setup_logging(config: AppConfig) -> None:
     level = getattr(logging, config.logging.level.upper(), logging.INFO)
-
     shared_processors = [
         structlog.contextvars.merge_contextvars,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.add_log_level,
         structlog.processors.StackInfoRenderer(),
     ]
-
     if config.logging.format == "json":
         renderer = structlog.processors.JSONRenderer()
     else:
         renderer = structlog.dev.ConsoleRenderer(colors=True)
-
     structlog.configure(
         processors=[*shared_processors, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(level),
@@ -51,25 +43,16 @@ def _setup_logging(config: AppConfig) -> None:
     )
 
 
-# --------------------------------------------------------------------------- #
-# Background task: periodically push queue stats to the health server         #
-# --------------------------------------------------------------------------- #
-
-
-async def _stats_reporter(queue: EventQueue, health: HealthServer, publisher: "StatusPublisher", interval: float = 15.0) -> None:
+async def _stats_reporter(queue: EventQueue, health: HealthServer, interval: float = 15.0) -> None:
     log = structlog.get_logger()
-    _was_busy = False  # True when at least one event was in flight
+    _was_busy = False
 
     while True:
         try:
             stats = await queue.stats()
             health.set_queue_stats(stats)
-            publisher.set_queue_stats(stats)
 
-            queued     = stats.get("queued", 0)
-            processing = stats.get("processing", 0)
-            pending    = stats.get("pending", 0)
-            is_busy    = (queued + processing + pending) > 0
+            is_busy = (stats.get("queued", 0) + stats.get("processing", 0) + stats.get("pending", 0)) > 0
 
             if _was_busy and not is_busy:
                 log.info(
@@ -81,11 +64,6 @@ async def _stats_reporter(queue: EventQueue, health: HealthServer, publisher: "S
         except Exception:
             pass
         await asyncio.sleep(interval)
-
-
-# --------------------------------------------------------------------------- #
-# Entry point                                                                  #
-# --------------------------------------------------------------------------- #
 
 
 async def main() -> None:
@@ -108,17 +86,13 @@ async def main() -> None:
     if mqtt_host != config.mqtt.host:
         log.warning("mqtt_host_fallback_used", configured=config.mqtt.host, using=mqtt_host)
 
-    # ---- shared state ------------------------------------------------- #
     queue = EventQueue(db_path="/data/events.db")
     await queue.setup()
 
     health = HealthServer(port=config.health.port)
-    publisher = StatusPublisher(config=config)
 
-    # ---- MQTT listener ------------------------------------------------ #
     listener = MQTTListener(config=config, on_event=queue.put)
 
-    # Patch the health server to reflect MQTT connectivity in real-time
     _orig_connect = listener._connect_and_listen  # noqa: SLF001
 
     async def _patched_connect(topic: str) -> None:
@@ -126,20 +100,16 @@ async def main() -> None:
             await _orig_connect(topic)
         finally:
             health.set_mqtt_connected(listener.connected)
-            publisher.set_mqtt_connected(listener.connected)
 
     listener._connect_and_listen = _patched_connect  # noqa: SLF001
 
-    # ---- workers ------------------------------------------------------ #
     workers = [
-        EventWorker(worker_id=i, queue=queue, config=config, publisher=publisher)
+        EventWorker(worker_id=i, queue=queue, config=config)
         for i in range(config.sync.workers)
     ]
 
-    # ---- retention cleaner -------------------------------------------- #
     cleaner = RetentionCleaner(config=config)
 
-    # ---- graceful shutdown -------------------------------------------- #
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
 
@@ -150,14 +120,12 @@ async def main() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda s=sig: _on_signal(s))
 
-    # ---- start all tasks ---------------------------------------------- #
     if config.health.enabled:
         await health.start()
 
     tasks = [
         asyncio.create_task(listener.run(), name="mqtt_listener"),
-        asyncio.create_task(_stats_reporter(queue, health, publisher), name="stats_reporter"),
-        asyncio.create_task(publisher.run(interval=30.0), name="status_publisher"),
+        asyncio.create_task(_stats_reporter(queue, health), name="stats_reporter"),
         asyncio.create_task(cleaner.run(), name="retention_cleaner"),
         *[
             asyncio.create_task(w.run(), name=f"worker_{i}")
