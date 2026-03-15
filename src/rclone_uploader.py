@@ -15,6 +15,10 @@ class RcloneUploader:
 
     Each :meth:`upload_file` is fully non-blocking: it spawns rclone as a
     child process and awaits its completion without touching the event loop.
+
+    A per-directory asyncio.Lock prevents two workers from uploading to the
+    same Google Drive folder simultaneously, which would cause duplicate
+    folder entries (GDrive allows duplicate names unlike a real filesystem).
     """
 
     def __init__(
@@ -30,6 +34,14 @@ class RcloneUploader:
         self.extra_flags = extra_flags or []
         self.bwlimit = bwlimit
         self.dry_run = dry_run
+        self._dir_locks: dict[str, asyncio.Lock] = {}
+
+    def _get_dir_lock(self, remote_subpath: str) -> asyncio.Lock:
+        """Return (creating if needed) a lock for the destination directory."""
+        directory = remote_subpath.rsplit("/", 1)[0] if "/" in remote_subpath else remote_subpath
+        if directory not in self._dir_locks:
+            self._dir_locks[directory] = asyncio.Lock()
+        return self._dir_locks[directory]
 
     # ------------------------------------------------------------------ #
     # Public API                                                           #
@@ -51,7 +63,8 @@ class RcloneUploader:
             return True
 
         cmd = self._build_cmd(str(local_path), dest)
-        return await self._run(cmd)
+        async with self._get_dir_lock(remote_subpath):
+            return await self._run(cmd)
 
     # ------------------------------------------------------------------ #
     # Internals                                                            #
