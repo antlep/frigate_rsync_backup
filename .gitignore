@@ -1,5 +1,29 @@
-.env
-rclone.conf
-logs/*.log
-synced_events.txt
-synced_events.txt.tmp
+# Config locale (contient des secrets)
+config/rclone.conf
+config/config.yaml
+
+# Override docker-compose local (contient les IPs réseau)
+docker-compose.override.yml
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp

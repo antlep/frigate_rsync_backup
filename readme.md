@@ -1,83 +1,315 @@
-# Frigate Event Backup to Google Drive (rclone)
+# frigate-gdrive-sync
 
-![License](https://img.shields.io/badge/license-MIT-green)
-![Docker](https://img.shields.io/badge/Docker-Supported-blue)
-![MQTT](https://img.shields.io/badge/MQTT-Mandatory-orange)
-![rclone](https://img.shields.io/badge/rclone-v3-blue?logo=rclone)
-
-[Français](#-français) | [English](#-english)
+> 🇫🇷 [Français](#français) | 🇬🇧 [English](#english)
 
 ---
 
-<a name="français"></a>
-## 🇫🇷 Français
+## Français
 
-Ce projet permet de sauvegarder automatiquement les clips et snapshots de **Frigate NVR** vers un stockage cloud (Google Drive, etc.) via **rclone**. Il est conçu pour fonctionner comme un compagnon léger à une instance Frigate existante sous Docker.
+### Présentation
 
-### ⚠️ Avertissements Critiques
+**frigate-gdrive-sync** est un service Docker qui écoute les événements de détection de [Frigate NVR](https://frigate.video) via MQTT et sauvegarde automatiquement les clips vidéo, snapshots et métadonnées sur Google Drive via [rclone](https://rclone.org).
 
-* **MQTT est IMPÉRATIF** : Le système utilise un broker MQTT (ex: Mosquitto) pour deux fonctions vitales :
-    * **Déclenchement (Input)** : Le script `watchdog` écoute le topic `frigate/events` pour lancer la sauvegarde dès qu'un événement se termine.
-    * **Rapport (Output)** : Le script de backup publie un bilan JSON (statut, espace, erreurs) après chaque synchronisation pour votre monitoring.
-* **Build de l'image** : Ce projet n'utilise pas d'image pré-construite sur un registre. Vous devez **builder** l'image localement lors du premier lancement.
-* **Dépendance Docker** : Ce projet nécessite que Frigate soit installé sous Docker. Il est fortement conseillé de faire démarrer ce conteneur **après** Frigate et le broker MQTT via la directive `depends_on`.
+Il est conçu pour tourner en colocalisé avec Frigate dans un LXC Proxmox, mais fonctionne aussi depuis n'importe quelle machine du réseau (Mac, autre serveur).
 
-### ✨ Caractéristiques
-* **Architecture réactive** : Sauvegarde instantanée déclenchée par les messages MQTT de Frigate.
-* **Double Sécurité** : Un balayage périodique automatique (toutes les 10 min) rattrape les éventuels messages MQTT perdus.
-* **Filtrage Intelligent** : Ne télécharge que les événements possédant un clip (`has_clip=1`) et validés dans la "Review" Frigate (`review=1`).
-* **Nettoyage automatique** : Purge les anciens dossiers sur le cloud après 7 jours.
-* **Noms logiques** : Les fichiers (.mp4, .jpg, .json) sont stockés avec des noms explicites (caméra + horodatage).
+### Fonctionnalités
 
-### 🚀 Installation & Build
-1. **Rclone** : Configurez votre accès avec `rclone config` et placez votre `rclone.conf` dans le dossier.
-2. **Environnement** : Copiez `.env.example` vers `.env` et remplissez vos accès MQTT et l'URL de Frigate.
-3. **Construction et Lancement** :
-    ```bash
-    # Construit l'image locale et lance le conteneur
-    docker compose up -d --build
-    ```
+- **Écoute MQTT** avec reconnexion automatique
+- **Téléchargement** des clips (.mp4), snapshots (.jpg) et métadonnées (.json) depuis l'API Frigate
+- **Upload via rclone** vers Google Drive (ou tout autre remote rclone)
+- **Workers parallèles** — N caméras traitées simultanément (configurable)
+- **Queue persistante SQLite** — aucun événement perdu après un redémarrage
+- **Retry avec backoff exponentiel** — gère les clips pas encore encodés par Frigate
+- **Rétention automatique** — suppression des fichiers plus vieux que N jours sur Google Drive
+- **Arborescence personnalisable** via template de chemin (`{date}/{camera}`, `{camera}/{label}`, etc.)
+- **Fallback d'hôte** — détection automatique si Frigate est local ou distant (pratique pour le dev)
+- **Health check HTTP** sur `/health` (port 8080)
+- **Dry-run** — simule les uploads sans rien écrire sur Drive
+- **Logs structurés JSON** (ou texte coloré pour le dev)
+
+### Architecture
+
+```
+Broker MQTT ──► MQTTListener ──► asyncio.Queue ──► Worker Pool (N workers)
+                                       │                    │
+                               SQLite (durabilité)   Frigate HTTP API
+                                                           │
+                                                        rclone → Google Drive
+```
+
+### Structure Google Drive (par défaut)
+
+```
+Frigate/
+  2026-03-15/
+    annke_02/
+      2026-03-15_14-32-07_person_abc123.mp4
+      2026-03-15_14-32-07_person_abc123.jpg
+      2026-03-15_14-32-07_person_abc123.json
+    foscam/
+      ...
+```
+
+### Prérequis
+
+- Docker + Docker Compose
+- Un broker MQTT (ex: Mosquitto dans Home Assistant)
+- Frigate NVR avec MQTT activé
+- `rclone.conf` configuré avec un remote Google Drive
+
+### Installation
+
+```bash
+# 1. Cloner la branche principale
+git clone https://github.com/ton-user/ton-repo.git
+cd ton-repo
+
+# 2. Initialiser la configuration
+make init
+# → crée config/config.yaml depuis config/config.example.yaml
+
+# 3. Copier le rclone.conf
+cp ~/.config/rclone/rclone.conf config/rclone.conf
+
+# 4. Éditer config/config.yaml
+nano config/config.yaml
+
+# 5. Builder et lancer
+make build
+make run
+
+# 6. Suivre les logs
+make logs
+```
+
+### Configuration
+
+Voir [`config/config.example.yaml`](config/config.example.yaml) pour la documentation complète de chaque option.
+
+| Variable d'environnement | Équivalent YAML         | Description                        |
+|--------------------------|-------------------------|------------------------------------|
+| `FRIGATE_HOST`           | `frigate.host`          | IP/hostname de Frigate             |
+| `MQTT_HOST`              | `mqtt.host`             | IP/hostname du broker MQTT         |
+| `MQTT_USERNAME`          | `mqtt.username`         | Identifiant MQTT                   |
+| `MQTT_PASSWORD`          | `mqtt.password`         | Mot de passe MQTT                  |
+| `RCLONE_REMOTE`          | `rclone.remote`         | Remote rclone (ex: `gdrive:Frigate`) |
+| `SYNC_WORKERS`           | `sync.workers`          | Nombre de workers parallèles       |
+| `SYNC_DRY_RUN`           | `sync.dry_run`          | Mode simulation (true/false)       |
+| `LOG_LEVEL`              | `logging.level`         | DEBUG / INFO / WARNING / ERROR     |
+
+### Template d'arborescence
+
+La structure des dossiers sur Google Drive est entièrement personnalisable :
+
+```yaml
+sync:
+  path_template: "{date}/{camera}"        # défaut → 2026-03-15/annke_02/
+  # path_template: "{camera}/{date}"      # → annke_02/2026-03-15/
+  # path_template: "{date}/{camera}/{label}" # → 2026-03-15/annke_02/person/
+```
+
+Variables disponibles : `{date}`, `{year}`, `{month}`, `{hour}`, `{camera}`, `{label}`, `{id}`, `{stem}`
+
+### Rétention
+
+```yaml
+sync:
+  retention_days: 7   # supprime les fichiers > 7 jours (0 = désactivé)
+```
+
+Le nettoyage s'effectue au démarrage puis toutes les 24h.
+
+### Health check
+
+```bash
+curl http://localhost:8080/health
+# {"status": "ok", "mqtt_connected": true, "pending": 0, "done": 142, "failed": 0}
+```
+
+### Dev local (Mac)
+
+```bash
+make init   # crée aussi docker-compose.override.yml
+# éditer les host_fallback dans config/config.yaml
+make build
+make dev    # logs en temps réel
+```
+
+### Commandes utiles
+
+```bash
+make build    # construire l'image
+make run      # démarrer en arrière-plan
+make dev      # démarrer avec logs en direct
+make stop     # arrêter
+make logs     # suivre les logs
+make shell    # ouvrir un shell dans le container
+```
 
 ---
 
-<a name="english"></a>
-## 🇺🇸 English
+## English
 
-Automated backup of **Frigate NVR** clips and snapshots to cloud storage using **rclone**. Designed as a lightweight companion for Frigate running under Docker.
+### Overview
 
-### ⚠️ Critical Warnings
+**frigate-gdrive-sync** is a Docker service that listens to detection events from [Frigate NVR](https://frigate.video) via MQTT and automatically backs up video clips, snapshots, and metadata to Google Drive using [rclone](https://rclone.org).
 
-* **MQTT is MANDATORY**: An MQTT broker is required for two vital functions:
-    * **Trigger (Input)** : The `watchdog` script monitors the `frigate/events` topic for real-time processing.
-    * **Reporting (Output)** : The backup script publishes a JSON report (status, storage, errors) after each sync.
-* **Local Build Required**: This project does not use a pre-built image. You must **build** the image locally from the Dockerfile.
-* **Docker Dependency**: It is highly recommended to start this container **after** Frigate and the MQTT broker using the `depends_on` directive.
+Designed to run alongside Frigate in a Proxmox LXC container, but works from any machine on the network (Mac, other server).
 
-### ✨ Key Features
-* **Event-Driven**: Instant backup triggered via MQTT `end` events.
-* **Robustness**: A background safety scan runs every 10 minutes.
-* **Smart Filtering**: Only backups events with video clips and validated "Review" status.
-* **Auto-Cleanup**: Automatically purges remote folders older than 7 days.
+### Features
 
-### 🚀 Quick Start
-1. **Rclone**: Setup your remote with `rclone config` and put `rclone.conf` in the project folder.
-2. **Environment**: Copy `.env.example` to `.env` and fill in MQTT and Frigate URL details.
-3. **Build & Deployment**:
-    ```bash
-    docker compose up -d --build
-    ```
+- **MQTT listener** with automatic reconnection
+- **Downloads** clips (.mp4), snapshots (.jpg) and metadata (.json) from the Frigate HTTP API
+- **Uploads via rclone** to Google Drive (or any rclone remote)
+- **Parallel workers** — N cameras processed simultaneously (configurable)
+- **SQLite persistent queue** — no events lost after a restart
+- **Retry with exponential backoff** — handles clips not yet encoded by Frigate
+- **Automatic retention** — deletes files older than N days from Google Drive
+- **Customizable folder structure** via path template (`{date}/{camera}`, `{camera}/{label}`, etc.)
+- **Host fallback** — auto-detects whether Frigate is local or remote (useful for dev)
+- **HTTP health check** on `/health` (port 8080)
+- **Dry-run mode** — simulates uploads without writing to Drive
+- **Structured JSON logs** (or colored text for dev)
 
----
+### Architecture
 
-### 🛠️ Architecture
-* **`frigate_watchdog.sh`**: Entry point. Listens to MQTT and manages the 10-min safety timer.
-* **`frigate_backup.sh`**: Logic engine. Queries Frigate API, downloads media, and moves them via rclone.
+```
+MQTT Broker ──► MQTTListener ──► asyncio.Queue ──► Worker Pool (N workers)
+                                       │                    │
+                               SQLite (durability)   Frigate HTTP API
+                                                           │
+                                                        rclone → Google Drive
+```
 
-## 🚀 Roadmap & Idées futures
+### Google Drive structure (default)
 
-Voici les pistes d'améliorations :
+```
+Frigate/
+  2026-03-15/
+    annke_02/
+      2026-03-15_14-32-07_person_abc123.mp4
+      2026-03-15_14-32-07_person_abc123.jpg
+      2026-03-15_14-32-07_person_abc123.json
+    foscam/
+      ...
+```
 
-- [ ] **Externalisation de la configuration** : Sortir les paramètres "hardcodés" (ex: boucle de sécurité de 10 min, limites de rétention) pour les rendre configurables via le fichier `.env`.
-- [ ] **Notifications multi-canaux** : Intégrer des alertes via Telegram ou Discord en cas d'échec de la synchronisation. Je n'y connais rien donc à vos crayons
-- [ ] **Gestion fine par caméra** : Permettre des durées de rétention différentes sur le Cloud selon l'importance de la caméra.
-- [ ] **Optimisation du registre** : Passer d'un fichier texte à une micro-base de données (SQLite) pour gérer des milliers d'événements sans ralentissement. A voir si c'est pertinent
+### Requirements
+
+- Docker + Docker Compose
+- A MQTT broker (e.g. Mosquitto in Home Assistant)
+- Frigate NVR with MQTT enabled
+- `rclone.conf` configured with a Google Drive remote
+
+### Installation
+
+```bash
+# 1. Clone the main branch
+git clone https://github.com/your-user/your-repo.git
+cd your-repo
+
+# 2. Initialize configuration
+make init
+# → creates config/config.yaml from config/config.example.yaml
+
+# 3. Copy your rclone.conf
+cp ~/.config/rclone/rclone.conf config/rclone.conf
+
+# 4. Edit config/config.yaml
+nano config/config.yaml
+
+# 5. Build and start
+make build
+make run
+
+# 6. Follow logs
+make logs
+```
+
+### Configuration
+
+See [`config/config.example.yaml`](config/config.example.yaml) for full documentation of each option.
+
+| Environment variable | YAML equivalent         | Description                          |
+|----------------------|-------------------------|--------------------------------------|
+| `FRIGATE_HOST`       | `frigate.host`          | Frigate IP/hostname                  |
+| `MQTT_HOST`          | `mqtt.host`             | MQTT broker IP/hostname              |
+| `MQTT_USERNAME`      | `mqtt.username`         | MQTT username                        |
+| `MQTT_PASSWORD`      | `mqtt.password`         | MQTT password                        |
+| `RCLONE_REMOTE`      | `rclone.remote`         | rclone remote (e.g. `gdrive:Frigate`) |
+| `SYNC_WORKERS`       | `sync.workers`          | Number of parallel workers           |
+| `SYNC_DRY_RUN`       | `sync.dry_run`          | Simulation mode (true/false)         |
+| `LOG_LEVEL`          | `logging.level`         | DEBUG / INFO / WARNING / ERROR       |
+
+### Path template
+
+The Google Drive folder structure is fully customizable:
+
+```yaml
+sync:
+  path_template: "{date}/{camera}"           # default → 2026-03-15/annke_02/
+  # path_template: "{camera}/{date}"         # → annke_02/2026-03-15/
+  # path_template: "{date}/{camera}/{label}" # → 2026-03-15/annke_02/person/
+```
+
+Available variables: `{date}`, `{year}`, `{month}`, `{hour}`, `{camera}`, `{label}`, `{id}`, `{stem}`
+
+### Retention
+
+```yaml
+sync:
+  retention_days: 7   # delete files older than 7 days (0 = disabled)
+```
+
+Cleanup runs at startup then every 24 hours.
+
+### Health check
+
+```bash
+curl http://localhost:8080/health
+# {"status": "ok", "mqtt_connected": true, "pending": 0, "done": 142, "failed": 0}
+```
+
+### Local dev (Mac)
+
+```bash
+make init   # also creates docker-compose.override.yml
+# edit host_fallback values in config/config.yaml
+make build
+make dev    # live logs
+```
+
+### Useful commands
+
+```bash
+make build    # build the image
+make run      # start in background
+make dev      # start with live logs
+make stop     # stop
+make logs     # follow logs
+make shell    # open a shell in the container
+```
+
+### Project structure
+
+```
+.
+├── config/
+│   └── config.example.yaml   # annotated configuration template
+├── scripts/
+│   └── test.sh               # integration test suite
+├── src/
+│   ├── main.py               # entry point, task orchestration
+│   ├── config.py             # Pydantic config (YAML + env vars)
+│   ├── models.py             # FrigateEvent dataclass
+│   ├── mqtt_listener.py      # MQTT subscriber with auto-reconnect
+│   ├── event_queue.py        # asyncio.Queue + SQLite persistence
+│   ├── worker.py             # download + upload worker
+│   ├── frigate_client.py     # Frigate HTTP API client
+│   ├── rclone_uploader.py    # async rclone subprocess wrapper
+│   ├── retention.py          # periodic GDrive cleanup
+│   └── health.py             # HTTP health check server
+├── Dockerfile
+├── docker-compose.yml
+└── Makefile
+```

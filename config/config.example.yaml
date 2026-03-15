@@ -1,0 +1,82 @@
+# frigate-gdrive-sync – example configuration
+# Copy this file to ./config/config.yaml and adjust to your setup.
+# All values can also be set via environment variables (see README).
+
+frigate:
+  host: "127.0.0.1"            # Sur LXC co-localisé → toujours joignable
+  host_fallback: "192.168.1.100"  # Sur Mac dev → utilisé si 127.0.0.1 ne répond pas
+  port: 5000
+  api_timeout: 30          # HTTP request timeout in seconds
+
+mqtt:
+  host: "127.0.0.1"            # Idem
+  host_fallback: "192.168.1.100"  # IP de ton broker Home Assistant
+  port: 1883
+  # username: "mqtt_user"
+  # password: "mqtt_pass"
+  topic_prefix: "frigate"  # must match Frigate's mqtt.topic_prefix
+  client_id: "frigate-gdrive-sync"
+  keepalive: 60
+
+rclone:
+  remote: "gdrive:Frigate"          # rclone remote name + root path
+  config_path: "/config/rclone.conf"
+  # bwlimit: "2M"                   # e.g. limit to 2 MB/s
+  flags: []                          # extra rclone flags, e.g. ["--drive-chunk-size", "32M"]
+
+sync:
+  workers: 4               # parallel upload workers – scale with camera count
+
+  # Retry on transient failures (Frigate not ready, network blip, …)
+  retry_attempts: 3
+  retry_delay: 10          # seconds before first retry
+  retry_backoff: 2.0       # each retry waits delay × backoff^(n-1)
+
+  # Choose what to save per event
+  download_clip: true
+  download_snapshot: true
+  export_json: true        # save Frigate event metadata as .json
+
+  # Filtering – leave empty to process everything
+  cameras: []              # e.g. ["front_door", "backyard"]
+  labels: []               # e.g. ["person", "car"]
+  min_score: 0.0           # 0–1, e.g. 0.7 to skip low-confidence detections
+
+  tmp_dir: "/tmp/frigate-sync"
+  dry_run: false           # set to true to log uploads without running rclone
+
+  # ---- Arborescence Google Drive ----------------------------------------- #
+  # Template du dossier de destination pour chaque événement.
+  # Les fichiers (mp4, jpg, json) sont placés directement dans ce dossier.
+  #
+  # Variables disponibles :
+  #   {date}   → date de l'événement        ex: 2026-03-15
+  #   {year}   → année                       ex: 2026
+  #   {month}  → année-mois                  ex: 2026-03
+  #   {hour}   → heure (2 chiffres)          ex: 14
+  #   {camera} → nom de la caméra Frigate    ex: annke_02
+  #   {label}  → label de détection          ex: person
+  #   {id}     → identifiant unique Frigate  ex: 1773575581.33434-f8r7fs
+  #   {stem}   → nom complet sans extension  ex: 2026-03-15_14-32-07_person_1773575581.33434-f8r7fs
+  #
+  # Exemples :
+  #   {date}/{camera}              → 2026-03-15/annke_02/              (défaut)
+  #   {year}/{month}/{camera}      → 2026/2026-03/annke_02/
+  #   {camera}/{date}              → annke_02/2026-03-15/
+  #   {camera}/{date}/{label}      → annke_02/2026-03-15/person/
+  #   {date}/{camera}/{hour}h      → 2026-03-15/annke_02/14h/
+  #
+  path_template: "{date}/{camera}"
+
+  # Rétention Google Drive : supprime les fichiers plus vieux que N jours
+  # Le nettoyage s'effectue au démarrage puis toutes les 24h.
+  # Mettre 0 pour désactiver.
+  retention_days: 7
+
+logging:
+  level: "INFO"            # DEBUG | INFO | WARNING | ERROR
+  format: "json"           # "json" for structured logs, "text" for human-readable
+
+health:
+  enabled: true
+  port: 8080               # GET /health → 200 ok / 503 degraded
