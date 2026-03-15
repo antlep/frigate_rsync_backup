@@ -45,7 +45,7 @@ class EventWorker:
     async def run(self) -> None:
         self._log.info("worker_started")
         async with FrigateClient(
-            host=self.config.frigate.host,
+            host=self.config.frigate.resolved_host(),
             port=self.config.frigate.port,
             timeout=self.config.frigate.api_timeout,
         ) as frigate:
@@ -115,7 +115,8 @@ class EventWorker:
                 if await frigate.download_clip(event.id, dest):
                     files.append((dest, f"{remote_dir}/{stem}.mp4"))
                 else:
-                    all_ok = False
+                    # Clip not ready yet — abort so retry uploads nothing twice
+                    return False
 
             # ---- snapshot --------------------------------------------- #
             if cfg.download_snapshot and event.has_snapshot:
@@ -123,7 +124,7 @@ class EventWorker:
                 if await frigate.download_snapshot(event.id, dest):
                     files.append((dest, f"{remote_dir}/{stem}.jpg"))
                 else:
-                    all_ok = False
+                    return False
 
             # ---- metadata JSON ---------------------------------------- #
             if cfg.export_json:
