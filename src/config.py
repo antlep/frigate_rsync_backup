@@ -106,6 +106,8 @@ class SyncConfig(BaseModel):
     # Available variables: {date} {year} {month} {camera} {label} {hour} {id}
     # Default: {date}/{camera}  →  2026-03-15/annke_02/
     path_template: str = "{date}/{camera}"
+    # Retention: delete files older than N days from the remote (0 = disabled)
+    retention_days: int = 7
 
 
 class LoggingConfig(BaseModel):

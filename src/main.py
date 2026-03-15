@@ -19,6 +19,8 @@ from config import AppConfig
 from event_queue import EventQueue
 from health import HealthServer
 from mqtt_listener import MQTTListener
+from status_publisher import StatusPublisher
+from retention import RetentionCleaner
 from worker import EventWorker
 
 
@@ -54,11 +56,12 @@ def _setup_logging(config: AppConfig) -> None:
 # --------------------------------------------------------------------------- #
 
 
-async def _stats_reporter(queue: EventQueue, health: HealthServer, interval: float = 15.0) -> None:
+async def _stats_reporter(queue: EventQueue, health: HealthServer, publisher: "StatusPublisher", interval: float = 15.0) -> None:
     while True:
         try:
             stats = await queue.stats()
             health.set_queue_stats(stats)
+            publisher.set_queue_stats(stats)
         except Exception:
             pass
         await asyncio.sleep(interval)
@@ -74,19 +77,27 @@ async def main() -> None:
     _setup_logging(config)
 
     log = structlog.get_logger()
+    frigate_host = config.frigate.resolved_host()
+    mqtt_host = config.mqtt.resolved_host()
+
     log.info(
         "frigate_gdrive_sync_starting",
-        frigate=f"{config.frigate.host}:{config.frigate.port}",
-        mqtt=f"{config.mqtt.host}:{config.mqtt.port}",
+        frigate=f"{frigate_host}:{config.frigate.port}",
+        mqtt=f"{mqtt_host}:{config.mqtt.port}",
         workers=config.sync.workers,
         dry_run=config.sync.dry_run,
     )
+    if frigate_host != config.frigate.host:
+        log.warning("frigate_host_fallback_used", configured=config.frigate.host, using=frigate_host)
+    if mqtt_host != config.mqtt.host:
+        log.warning("mqtt_host_fallback_used", configured=config.mqtt.host, using=mqtt_host)
 
     # ---- shared state ------------------------------------------------- #
     queue = EventQueue(db_path="/data/events.db")
     await queue.setup()
 
     health = HealthServer(port=config.health.port)
+    publisher = StatusPublisher(config=config)
 
     # ---- MQTT listener ------------------------------------------------ #
     listener = MQTTListener(config=config, on_event=queue.put)
@@ -99,14 +110,18 @@ async def main() -> None:
             await _orig_connect(topic)
         finally:
             health.set_mqtt_connected(listener.connected)
+            publisher.set_mqtt_connected(listener.connected)
 
     listener._connect_and_listen = _patched_connect  # noqa: SLF001
 
     # ---- workers ------------------------------------------------------ #
     workers = [
-        EventWorker(worker_id=i, queue=queue, config=config)
+        EventWorker(worker_id=i, queue=queue, config=config, publisher=publisher)
         for i in range(config.sync.workers)
     ]
+
+    # ---- retention cleaner -------------------------------------------- #
+    cleaner = RetentionCleaner(config=config)
 
     # ---- graceful shutdown -------------------------------------------- #
     stop_event = asyncio.Event()
@@ -125,7 +140,9 @@ async def main() -> None:
 
     tasks = [
         asyncio.create_task(listener.run(), name="mqtt_listener"),
-        asyncio.create_task(_stats_reporter(queue, health), name="stats_reporter"),
+        asyncio.create_task(_stats_reporter(queue, health, publisher), name="stats_reporter"),
+        asyncio.create_task(publisher.run(interval=30.0), name="status_publisher"),
+        asyncio.create_task(cleaner.run(), name="retention_cleaner"),
         *[
             asyncio.create_task(w.run(), name=f"worker_{i}")
             for i, w in enumerate(workers)

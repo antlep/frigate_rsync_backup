@@ -68,6 +68,11 @@ sync:
   #
   path_template: "{date}/{camera}"
 
+  # Rétention Google Drive : supprime les fichiers plus vieux que N jours
+  # Le nettoyage s'effectue au démarrage puis toutes les 24h.
+  # Mettre 0 pour désactiver.
+  retention_days: 7
+
 logging:
   level: "INFO"            # DEBUG | INFO | WARNING | ERROR
   format: "json"           # "json" for structured logs, "text" for human-readable
