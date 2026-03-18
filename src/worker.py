@@ -101,6 +101,17 @@ class EventWorker:
         tmp = Path(cfg.tmp_dir) / event.id
         tmp.mkdir(parents=True, exist_ok=True)
 
+        # Re-fetch fresh event data from Frigate API so has_clip / has_snapshot
+        # reflect the actual current state (MQTT payload can arrive before files
+        # are ready, with has_clip=False even though a clip will exist shortly).
+        fresh = await frigate.get_event(event.id)
+        if fresh:
+            event = FrigateEvent.from_dict({
+                **event.to_dict(),
+                "has_clip":     fresh.get("has_clip", event.has_clip),
+                "has_snapshot": fresh.get("has_snapshot", event.has_snapshot),
+            })
+
         # Remote path built from config path_template
         remote_dir = event.render_path(cfg.path_template)
         stem = event.filename_stem
