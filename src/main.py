@@ -45,7 +45,7 @@ def _setup_logging(config: AppConfig) -> None:
     )
 
 
-async def _stats_reporter(queue: EventQueue, health: HealthServer, interval: float = 15.0) -> None:
+async def _stats_reporter(queue: EventQueue, health: HealthServer, remote_log: "RemoteLogger", interval: float = 15.0) -> None:
     log = structlog.get_logger()
     _was_busy = False
 
@@ -62,6 +62,8 @@ async def _stats_reporter(queue: EventQueue, health: HealthServer, interval: flo
                     done=stats.get("done", 0),
                     failed=stats.get("failed", 0),
                 )
+                # Sync log to GDrive immediately when all workers go idle
+                await remote_log.sync_now()
             _was_busy = is_busy
         except Exception:
             pass
@@ -151,7 +153,7 @@ async def main() -> None:
 
     tasks = [
         asyncio.create_task(listener.run(), name="mqtt_listener"),
-        asyncio.create_task(_stats_reporter(queue, health), name="stats_reporter"),
+        asyncio.create_task(_stats_reporter(queue, health, remote_log), name="stats_reporter"),
         asyncio.create_task(cleaner.run(), name="retention_cleaner"),
         asyncio.create_task(remote_log.run(), name="remote_log_sync"),
         *[
