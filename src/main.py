@@ -22,6 +22,7 @@ from health import HealthServer
 from mqtt_listener import MQTTListener
 from retention import RetentionCleaner
 from rclone_uploader import RcloneUploader
+from remote_logger import RemoteLogger
 from worker import EventWorker
 
 
@@ -101,6 +102,10 @@ async def main() -> None:
             await _orig_connect(topic)
         finally:
             health.set_mqtt_connected(listener.connected)
+            if listener.connected:
+                remote_log.info(f"MQTT connecté → {mqtt_host}:{config.mqtt.port} | topic:{config.mqtt.topic_prefix}/events")
+            else:
+                remote_log.info(f"MQTT déconnecté de {mqtt_host}:{config.mqtt.port}")
 
     listener._connect_and_listen = _patched_connect  # noqa: SLF001
 
@@ -113,8 +118,19 @@ async def main() -> None:
         dry_run=config.sync.dry_run,
     )
 
+    remote_log = RemoteLogger(
+        remote=config.rclone.remote,
+        config_path=config.rclone.config_path,
+        dry_run=config.sync.dry_run,
+    )
+    remote_log.info(
+        f"Démarrage — frigate:{frigate_host}:{config.frigate.port} "
+        f"mqtt:{mqtt_host}:{config.mqtt.port} "
+        f"workers:{config.sync.workers} retention:{config.sync.retention_days}j"
+    )
+
     workers = [
-        EventWorker(worker_id=i, queue=queue, config=config, uploader=shared_uploader)
+        EventWorker(worker_id=i, queue=queue, config=config, uploader=shared_uploader, remote_logger=remote_log)
         for i in range(config.sync.workers)
     ]
 
@@ -137,6 +153,7 @@ async def main() -> None:
         asyncio.create_task(listener.run(), name="mqtt_listener"),
         asyncio.create_task(_stats_reporter(queue, health), name="stats_reporter"),
         asyncio.create_task(cleaner.run(), name="retention_cleaner"),
+        asyncio.create_task(remote_log.run(), name="remote_log_sync"),
         *[
             asyncio.create_task(w.run(), name=f"worker_{i}")
             for i, w in enumerate(workers)
@@ -152,6 +169,7 @@ async def main() -> None:
         await asyncio.gather(*tasks, return_exceptions=True)
         await queue.close()
         await health.stop()
+        await remote_log.sync_now()
         log.info("shutdown_complete")
 
 

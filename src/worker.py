@@ -20,16 +20,18 @@ from event_queue import EventQueue
 from frigate_client import FrigateClient
 from models import FrigateEvent
 from rclone_uploader import RcloneUploader
+from remote_logger import RemoteLogger
 
 logger = structlog.get_logger(__name__)
 
 
 class EventWorker:
-    def __init__(self, worker_id: int, queue: EventQueue, config: AppConfig, uploader: "RcloneUploader") -> None:
+    def __init__(self, worker_id: int, queue: EventQueue, config: AppConfig, uploader: "RcloneUploader", remote_logger: "RemoteLogger") -> None:
         self.worker_id = worker_id
         self.queue = queue
         self.config = config
-        self._uploader = uploader   # shared across all workers — locks are shared too
+        self._uploader = uploader
+        self._remote_logger = remote_logger
         self._log = logger.bind(worker=worker_id)
 
     # ------------------------------------------------------------------ #
@@ -59,8 +61,10 @@ class EventWorker:
     # ------------------------------------------------------------------ #
 
     async def _process_with_retry(self, event: FrigateEvent, frigate: FrigateClient) -> None:
+        import time as _time
         cfg = self.config.sync
         log = self._log.bind(event_id=event.id, camera=event.camera, label=event.label)
+        start = _time.monotonic()
 
         for attempt in range(1, cfg.retry_attempts + 1):
             log = log.bind(attempt=attempt)
@@ -75,6 +79,12 @@ class EventWorker:
                 raise
             except Exception as exc:
                 log.warning("attempt_error", error=str(exc))
+                self._remote_logger.error(
+                    camera=event.camera,
+                    label=event.label,
+                    event_id=event.id,
+                    reason=f"exception: {exc}",
+                )
 
             await self.queue.increment_attempts(event.id)
 
@@ -85,6 +95,68 @@ class EventWorker:
 
         await self.queue.mark_failed(event.id)
         log.error("event_permanently_failed")
+        self._remote_logger.error(
+            camera=event.camera,
+            label=event.label,
+            event_id=event.id,
+            reason=f"permanently failed after {cfg.retry_attempts} attempts",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Media readiness polling                                              #
+    # ------------------------------------------------------------------ #
+
+    async def _wait_for_media(self, event: FrigateEvent, frigate: FrigateClient) -> FrigateEvent:
+        """Poll the Frigate API until has_clip / has_snapshot are set (or timeout).
+
+        Returns an updated FrigateEvent with the freshest flags available.
+        """
+        cfg = self.config.sync
+        interval = cfg.clip_poll_interval
+        timeout  = cfg.clip_poll_timeout
+        elapsed  = 0.0
+
+        while elapsed < timeout:
+            fresh = await frigate.get_event(event.id)
+            if fresh:
+                has_clip     = fresh.get("has_clip", False)
+                has_snapshot = fresh.get("has_snapshot", False)
+
+                if has_clip or has_snapshot:
+                    # Media is ready — return updated event
+                    return FrigateEvent.from_dict({
+                        **event.to_dict(),
+                        "has_clip":     has_clip,
+                        "has_snapshot": has_snapshot,
+                    })
+
+            self._log.debug(
+                "waiting_for_media",
+                event_id=event.id,
+                elapsed=round(elapsed, 1),
+                timeout=timeout,
+            )
+            await asyncio.sleep(interval)
+            elapsed += interval
+
+        # Timeout reached — return latest known state.
+        # If skip_if_no_media is True, the caller will discard this event cleanly.
+        self._log.warning(
+            "media_wait_timeout",
+            event_id=event.id,
+            camera=event.camera,
+            label=event.label,
+            timeout=timeout,
+            outcome="will_be_discarded" if self.config.sync.skip_if_no_media else "json_only",
+        )
+        if self.config.sync.skip_if_no_media:
+            self._remote_logger.error(
+                camera=event.camera,
+                label=event.label,
+                event_id=event.id,
+                reason=f"timeout {timeout}s — no media available, discarded",
+            )
+        return event
 
     # ------------------------------------------------------------------ #
     # Core processing                                                      #
@@ -92,19 +164,28 @@ class EventWorker:
 
     async def _process(self, event: FrigateEvent, frigate: FrigateClient) -> bool:
         cfg = self.config.sync
+        import time as _time
+        _start = _time.monotonic()
         tmp = Path(cfg.tmp_dir) / event.id
         tmp.mkdir(parents=True, exist_ok=True)
 
-        # Re-fetch fresh event data from Frigate API so has_clip / has_snapshot
-        # reflect the actual current state (MQTT payload can arrive before files
-        # are ready, with has_clip=False even though a clip will exist shortly).
-        fresh = await frigate.get_event(event.id)
-        if fresh:
-            event = FrigateEvent.from_dict({
-                **event.to_dict(),
-                "has_clip":     fresh.get("has_clip", event.has_clip),
-                "has_snapshot": fresh.get("has_snapshot", event.has_snapshot),
-            })
+        # Poll Frigate API until media is ready (or timeout).
+        # This is robust against variable encoding times: we wait for reality,
+        # not a fixed estimate. Polling interval: clip_poll_interval seconds.
+        # Max wait: clip_poll_timeout seconds. If timeout is reached and still
+        # no media, skip_if_no_media decides whether to discard or upload JSON only.
+        event = await self._wait_for_media(event, frigate)
+
+        # Skip events that have no media at all (e.g. car outside detection zone).
+        # Checked AFTER polling so we never discard events that just needed more time.
+        if self.config.sync.skip_if_no_media and not event.has_clip and not event.has_snapshot:
+            self._log.info(
+                "skipped_no_media",
+                event_id=event.id,
+                camera=event.camera,
+                label=event.label,
+            )
+            return True  # mark as done — no retry needed
 
         # Remote path built from config path_template
         remote_dir = event.render_path(cfg.path_template)
@@ -174,5 +255,17 @@ class EventWorker:
 
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+        if all_ok and files:
+            import time as _time
+            duration = _time.monotonic() - _start
+            self._remote_logger.success(
+                camera=event.camera,
+                label=event.label,
+                event_id=event.id,
+                score=event.score,
+                duration_s=duration,
+                files=[Path(local).suffix.lstrip(".") for local, _ in files],
+            )
 
         return all_ok
