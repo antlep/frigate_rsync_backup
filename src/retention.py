@@ -22,9 +22,11 @@ _24H = 60 * 60 * 24
 
 
 class RetentionCleaner:
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(self, config: AppConfig, queue=None, remote_log=None) -> None:
         self._config = config
         self._retention_days = config.sync.retention_days
+        self._queue = queue
+        self._remote_log = remote_log
 
     # ------------------------------------------------------------------ #
     # Main loop                                                            #
@@ -80,6 +82,13 @@ class RetentionCleaner:
         await self._run(rmdirs_cmd, "retention_rmdirs")
 
         log.info("retention_cleanup_done", next_run="in 24h")
+
+        # Daily: purge old SQLite events and rotate remote log
+        if self._queue:
+            await self._queue.purge_old_events(self._retention_days)
+        if self._remote_log:
+            self._remote_log.rotate(self._retention_days)
+            await self._remote_log.sync_now()
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #

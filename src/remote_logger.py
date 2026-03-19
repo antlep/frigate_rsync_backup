@@ -138,3 +138,31 @@ class RemoteLogger:
                     )
             except OSError as exc:
                 logger.error("remote_log_sync_error", error=str(exc))
+
+    def rotate(self, retention_days: int) -> None:
+        """Remove log lines older than retention_days. Called at startup and daily."""
+        if not self._local.exists():
+            return
+        try:
+            from datetime import timedelta
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days))
+            cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
+
+            lines = self._local.read_text(encoding="utf-8").splitlines(keepends=True)
+            kept = []
+            removed = 0
+            for line in lines:
+                # Extract timestamp from "[YYYY-MM-DD HH:MM:SS]" prefix
+                if line.startswith("[") and len(line) > 21:
+                    ts = line[1:20]
+                    if ts < cutoff_str:
+                        removed += 1
+                        continue
+                kept.append(line)
+
+            if removed:
+                self._local.write_text("".join(kept), encoding="utf-8")
+                self._dirty = True
+                logger.info("log_rotated", removed_lines=removed, retention_days=retention_days)
+        except OSError as exc:
+            logger.error("log_rotate_error", error=str(exc))

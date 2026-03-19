@@ -106,6 +106,22 @@ class EventQueue:
             row = await cur.fetchone()
         return row["attempts"] if row else 1
 
+    async def purge_old_events(self, retention_days: int) -> None:
+        """Delete done/failed events older than retention_days from SQLite."""
+        from datetime import datetime, timezone, timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).timestamp()
+        async with self._db.execute(  # type: ignore[union-attr]
+            """DELETE FROM events
+               WHERE status IN ('done', 'failed')
+               AND CAST(json_extract(data, '$.start_time') AS REAL) < ?"""
+            , (cutoff,)
+        ) as cur:
+            deleted = cur.rowcount
+        await self._db.commit()  # type: ignore[union-attr]
+        if deleted:
+            import structlog
+            structlog.get_logger().info("events_purged", deleted=deleted, retention_days=retention_days)
+
     async def stats(self) -> dict[str, int]:
         """Return per-status counts (useful for the health endpoint)."""
         result: dict[str, int] = {s.value: 0 for s in EventStatus}

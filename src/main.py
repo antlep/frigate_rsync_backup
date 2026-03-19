@@ -125,6 +125,12 @@ async def main() -> None:
         config_path=config.rclone.config_path,
         dry_run=config.sync.dry_run,
     )
+    # Rotate log at startup (remove lines older than retention_days)
+    remote_log.rotate(config.sync.retention_days)
+
+    # Purge old failed events from SQLite at startup
+    await queue.purge_old_events(config.sync.retention_days)
+
     remote_log.info(
         f"Démarrage — frigate:{frigate_host}:{config.frigate.port} "
         f"mqtt:{mqtt_host}:{config.mqtt.port} "
@@ -136,7 +142,7 @@ async def main() -> None:
         for i in range(config.sync.workers)
     ]
 
-    cleaner = RetentionCleaner(config=config)
+    cleaner = RetentionCleaner(config=config, queue=queue, remote_log=remote_log)
 
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()

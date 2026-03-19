@@ -46,3 +46,6 @@ lint:
 
 test:
 	./scripts/test.sh
+
+clean-db:
+	docker compose exec frigate-gdrive-sync sqlite3 /data/events.db 		"DELETE FROM events WHERE status IN ('done','failed'); SELECT changes() || ' events deleted';"
