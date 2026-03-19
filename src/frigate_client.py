@@ -37,6 +37,15 @@ class FrigateClient:
     # Public API                                                           #
     # ------------------------------------------------------------------ #
 
+    async def probe_clip(self, event_id: str) -> bool:
+        """Return True if the clip URL responds with HTTP 200 (non-blocking HEAD)."""
+        url = f"{self.base_url}/api/events/{event_id}/clip.mp4"
+        try:
+            async with self._session.head(url) as resp:  # type: ignore[union-attr]
+                return resp.status == 200
+        except aiohttp.ClientError:
+            return False
+
     async def download_clip(self, event_id: str, dest: Path) -> bool:
         url = f"{self.base_url}/api/events/{event_id}/clip.mp4"
         return await self._stream_to_file(url, dest)

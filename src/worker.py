@@ -107,9 +107,11 @@ class EventWorker:
     # ------------------------------------------------------------------ #
 
     async def _wait_for_media(self, event: FrigateEvent, frigate: FrigateClient) -> FrigateEvent:
-        """Poll the Frigate API until has_clip / has_snapshot are set (or timeout).
+        """Poll the Frigate API until media is confirmed downloadable (or timeout).
 
-        Returns an updated FrigateEvent with the freshest flags available.
+        Frigate can set has_clip=True in its DB before the file is actually
+        servable (returns HTTP 400). So we verify by probing the clip URL
+        directly, not just checking the flag.
         """
         cfg = self.config.sync
         interval = cfg.clip_poll_interval
@@ -123,12 +125,24 @@ class EventWorker:
                 has_snapshot = fresh.get("has_snapshot", False)
 
                 if has_clip or has_snapshot:
-                    # Media is ready — return updated event
-                    return FrigateEvent.from_dict({
-                        **event.to_dict(),
-                        "has_clip":     has_clip,
-                        "has_snapshot": has_snapshot,
-                    })
+                    # Flags are set — now verify the clip is actually downloadable
+                    # by probing the URL (avoids 400 on first real download attempt)
+                    clip_ok = True
+                    if has_clip and cfg.download_clip:
+                        clip_ok = await frigate.probe_clip(event.id)
+
+                    if clip_ok:
+                        return FrigateEvent.from_dict({
+                            **event.to_dict(),
+                            "has_clip":     has_clip,
+                            "has_snapshot": has_snapshot,
+                        })
+
+                    self._log.debug(
+                        "clip_not_yet_servable",
+                        event_id=event.id,
+                        elapsed=round(elapsed, 1),
+                    )
 
             self._log.debug(
                 "waiting_for_media",
