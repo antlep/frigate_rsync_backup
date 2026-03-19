@@ -97,6 +97,12 @@ class SyncConfig(BaseModel):
     download_snapshot: bool = True
     export_json: bool = True
     skip_if_no_media: bool = True   # ignore events with no clip and no snapshot
+
+    # Polling: how often to ask Frigate API if the clip/snapshot is ready (seconds)
+    clip_poll_interval: float = 3.0
+    # Polling: max total time to wait for media before giving up (seconds)
+    # Should be > your Frigate post_capture + encoding time under load.
+    clip_poll_timeout: float = 60.0
     cameras: list[str] = Field(default_factory=list)   # [] = all cameras
     labels: list[str] = Field(default_factory=list)    # [] = all labels
     min_score: float = 0.0
