@@ -96,6 +96,7 @@ class SyncConfig(BaseModel):
     download_clip: bool = True
     download_snapshot: bool = True
     export_json: bool = True
+    skip_if_no_media: bool = True   # ignore events with no clip and no snapshot
     cameras: list[str] = Field(default_factory=list)   # [] = all cameras
     labels: list[str] = Field(default_factory=list)    # [] = all labels
     min_score: float = 0.0

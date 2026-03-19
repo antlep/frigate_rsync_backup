@@ -36,6 +36,7 @@ sync:
   download_clip: true
   download_snapshot: true
   export_json: true        # save Frigate event metadata as .json
+  skip_if_no_media: true   # ignore events with no clip AND no snapshot (avoids JSON-only entries)
 
   # Filtering – leave empty to process everything
   cameras: []              # e.g. ["front_door", "backyard"]

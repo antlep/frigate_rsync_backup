@@ -59,7 +59,7 @@ class MQTTListener:
         logger.info("mqtt_connecting", host=self._cfg.host, port=self._cfg.port)
 
         client_kwargs: dict = dict(
-            hostname=self._cfg.host,
+            hostname=self._cfg.resolved_host(),
             port=self._cfg.port,
             identifier=self._cfg.client_id,
             keepalive=self._cfg.keepalive,
@@ -111,6 +111,15 @@ class MQTTListener:
                 "filtered_score",
                 score=event.score,
                 min_score=self._sync.min_score,
+            )
+            return
+
+        if self._sync.skip_if_no_media and not event.has_clip and not event.has_snapshot:
+            logger.debug(
+                "filtered_no_media",
+                event_id=event.id,
+                camera=event.camera,
+                label=event.label,
             )
             return
 

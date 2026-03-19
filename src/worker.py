@@ -25,17 +25,11 @@ logger = structlog.get_logger(__name__)
 
 
 class EventWorker:
-    def __init__(self, worker_id: int, queue: EventQueue, config: AppConfig) -> None:
+    def __init__(self, worker_id: int, queue: EventQueue, config: AppConfig, uploader: "RcloneUploader") -> None:
         self.worker_id = worker_id
         self.queue = queue
         self.config = config
-        self._uploader = RcloneUploader(
-            remote=config.rclone.remote,
-            config_path=config.rclone.config_path,
-            extra_flags=config.rclone.flags,
-            bwlimit=config.rclone.bwlimit,
-            dry_run=config.sync.dry_run,
-        )
+        self._uploader = uploader   # shared across all workers — locks are shared too
         self._log = logger.bind(worker=worker_id)
 
     # ------------------------------------------------------------------ #

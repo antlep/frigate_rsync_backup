@@ -21,6 +21,7 @@ from event_queue import EventQueue
 from health import HealthServer
 from mqtt_listener import MQTTListener
 from retention import RetentionCleaner
+from rclone_uploader import RcloneUploader
 from worker import EventWorker
 
 
@@ -103,8 +104,17 @@ async def main() -> None:
 
     listener._connect_and_listen = _patched_connect  # noqa: SLF001
 
+    # Single shared uploader so dir-locks are effective across all workers
+    shared_uploader = RcloneUploader(
+        remote=config.rclone.remote,
+        config_path=config.rclone.config_path,
+        extra_flags=config.rclone.flags,
+        bwlimit=config.rclone.bwlimit,
+        dry_run=config.sync.dry_run,
+    )
+
     workers = [
-        EventWorker(worker_id=i, queue=queue, config=config)
+        EventWorker(worker_id=i, queue=queue, config=config, uploader=shared_uploader)
         for i in range(config.sync.workers)
     ]
 
